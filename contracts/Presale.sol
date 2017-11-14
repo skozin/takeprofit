@@ -55,7 +55,7 @@ contract Presale is Haltable {
     require(startTime >= now);
     require(endTime >= startTime);
     require(rate > 0);
-    require(withdrawAddress == address(0));
+    require(withdrawAddress == address(0)); // Unnecessary check?
     require(_withdrawAddress != address(0));
     require(cap>0);
     token = Token(token_address);
@@ -66,7 +66,7 @@ contract Presale is Haltable {
     require(token.balanceOf(this) >= uint256(10)**(6+8));
     if(token.balanceOf(this)>uint256(10)**(6+8))
       require(token.transfer(withdrawAddress, token.balanceOf(this).sub(uint256(10)**(6+8))));
-    initiated = true;
+    initiated = true; // it's better to put effects before transfers, i.e. move this one line up
   }
 
   // fallback function can be used to buy tokens
@@ -95,9 +95,11 @@ contract Presale is Haltable {
 
     purchasedTokens[beneficiary] += tokens;
     receivedFunds[msg.sender] += weiAmount;
+
     if(weiExcess>0) {
       msg.sender.transfer(weiExcess);
     }
+
     TokenPurchase(msg.sender, beneficiary, weiAmount, tokens);
   }
 
@@ -123,11 +125,13 @@ contract Presale is Haltable {
   function claimTokens(address beneficiary) public stopInEmergency inState(State.Finalized) {
     require(purchasedTokens[beneficiary]>0);
     uint256 value = purchasedTokens[beneficiary];
-    purchasedTokens[beneficiary] -= value;
+    purchasedTokens[beneficiary] -= value; // assign to zero?
+    // need to check for transfer() result, as it may be false, which means failed transfer per ERC20
     token.transfer(beneficiary, value);
   }
 
   function refund() public stopInEmergency inState(State.Refunding) {
+    // Replace this code with delegatedRefund(msg.sender)
     require(receivedFunds[msg.sender]>0);
     uint256 value = receivedFunds[msg.sender];
     receivedFunds[msg.sender] -= value;
@@ -137,8 +141,8 @@ contract Presale is Haltable {
   function delegatedRefund(address beneficiary) public stopInEmergency inState(State.Refunding) {
     require(receivedFunds[beneficiary]>0);
     uint256 value = receivedFunds[beneficiary];
-    receivedFunds[beneficiary] -= value;
-    require(beneficiary.send(value));
+    receivedFunds[beneficiary] -= value; // assign to zero?
+    require(beneficiary.send(value)); // use beneficiary.transfer?
   }
 
   function finalize() public inState(State.Success) onlyOwner stopInEmergency {
@@ -147,11 +151,15 @@ contract Presale is Haltable {
     finalized = true;
   }
 
+  // This functions allows to bypass refund mechanism, i.e. withdraw received funds
+  // even if cap is not reached.
+  //
   function emergencyWithdrawal(uint256 _amount) public onlyOwner onlyInEmergency {
     withdrawAddress.transfer(_amount);
   }
 
   function emergencyTokenWithdrawal(uint256 _amount) public onlyOwner onlyInEmergency {
+    // need to check for transfer() result, as it may be false, which means failed transfer per ERC20
     token.transfer(withdrawAddress, _amount);
   }
 
@@ -159,7 +167,7 @@ contract Presale is Haltable {
   function getState() public constant returns (State) {
     if(finalized) return State.Finalized;
     if(!initiated) return State.Prepairing;
-    else if (block.timestamp < startTime) return State.PreFunding;
+    else if (block.timestamp < startTime) return State.PreFunding; // why PreFunding is needed?
     else if (block.timestamp <= endTime && weiRaised<cap) return State.Funding;
     else if (weiRaised>=cap) return State.Success;
     else if (weiRaised > 0 && block.timestamp >= endTime && weiRaised<cap) return State.Refunding;
@@ -167,6 +175,7 @@ contract Presale is Haltable {
   }
 
   /** Modified allowing execution only if the Presale is currently running.  */
+  // ^ Outdated comment?
   modifier inState(State state) {
     require(getState() == state);
     _;
